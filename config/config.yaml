@@ -1,0 +1,11 @@
+model_name : '/home/mayank/Documents/EAST/pths/vgg_best/model_epoch_360.pth'
+test_img_path : '/home/mayank/Documents/ICDAR_2015/test_img/'
+submit_path : '/home/mayank/Documents/EAST/submit'
+train_img_path : '/home/mayank/Documents/ICDAR_2015/train_img/'
+train_gt_path  : '/home/mayank/Documents/ICDAR_2015/train_gt/'
+pths_path      : '/home/mayank/Documents/EAST/pths'
+batch_size     : 24
+lr             : 0.0001
+num_workers    : 4
+epoch_iter     : 500
+save_interval  : 5
