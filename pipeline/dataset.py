@@ -1,9 +1,10 @@
+import os
+
 from shapely.geometry import Polygon
 import numpy as np
 import cv2
 from PIL import Image
-import math
-import os
+
 import torch
 import torchvision.transforms as transforms
 from torch.utils import data
@@ -11,17 +12,16 @@ from torch.utils import data
 
 def cal_distance(x1, y1, x2, y2):
 	'''calculate the Euclidean distance'''
-	return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+	return np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
 
 
-def move_points(vertices, index1, index2, r, coef):
+def move_points(vertices, index1, index2, r):
 	'''move the two points to shrink edge
 	Input:
 		vertices: vertices of text region <numpy.ndarray, (8,)>
 		index1  : offset of point1
 		index2  : offset of point2
 		r       : [r1, r2, r3, r4] in paper
-		coef    : shrink ratio in paper
 	Output:
 		vertices: vertices where one edge has been shinked
 	'''
@@ -38,10 +38,10 @@ def move_points(vertices, index1, index2, r, coef):
 	length_y = vertices[y1_index] - vertices[y2_index]
 	length = cal_distance(vertices[x1_index], vertices[y1_index], vertices[x2_index], vertices[y2_index])
 	if length > 1:	
-		ratio = (r1 * coef) / length
+		ratio = (r1) / length
 		vertices[x1_index] += ratio * (-length_x) 
 		vertices[y1_index] += ratio * (-length_y) 
-		ratio = (r2 * coef) / length
+		ratio = (r2) / length
 		vertices[x2_index] += ratio * length_x 
 		vertices[y2_index] += ratio * length_y
 	return vertices	
@@ -60,26 +60,25 @@ def shrink_poly(vertices, coef=0.3):
 	r2 = min(cal_distance(x2,y2,x1,y1), cal_distance(x2,y2,x3,y3))
 	r3 = min(cal_distance(x3,y3,x2,y2), cal_distance(x3,y3,x4,y4))
 	r4 = min(cal_distance(x4,y4,x1,y1), cal_distance(x4,y4,x3,y3))
-	r = [r1, r2, r3, r4]
+	ref_len = np.array([r1, r2, r3, r4])*coef
 
 	# obtain offset to perform move_points() automatically
-	if cal_distance(x1,y1,x2,y2) + cal_distance(x3,y3,x4,y4) > \
-       cal_distance(x2,y2,x3,y3) + cal_distance(x1,y1,x4,y4):
+	if cal_distance(x1,y1,x2,y2) + cal_distance(x3,y3,x4,y4) > cal_distance(x2,y2,x3,y3) + cal_distance(x1,y1,x4,y4):
 		offset = 0 # two longer edges are (x1y1-x2y2) & (x3y3-x4y4)
 	else:
 		offset = 1 # two longer edges are (x2y2-x3y3) & (x4y4-x1y1)
 
 	v = vertices.copy()
-	v = move_points(v, 0 + offset, 1 + offset, r, coef)
-	v = move_points(v, 2 + offset, 3 + offset, r, coef)
-	v = move_points(v, 1 + offset, 2 + offset, r, coef)
-	v = move_points(v, 3 + offset, 4 + offset, r, coef)
+	v = move_points(v, 0 + offset, 1 + offset, ref_len)
+	v = move_points(v, 2 + offset, 3 + offset, ref_len)
+	v = move_points(v, 1 + offset, 2 + offset, ref_len)
+	v = move_points(v, 3 + offset, 4 + offset, ref_len)
 	return v
 
 
 def get_rotate_mat(theta):
 	'''positive theta value means rotate clockwise'''
-	return np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
+	return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
 
 def rotate_vertices(vertices, theta, anchor=None):
@@ -106,11 +105,10 @@ def get_boundary(vertices):
 	Output:
 		the boundary
 	'''
-	x1, y1, x2, y2, x3, y3, x4, y4 = vertices
-	x_min = min(x1, x2, x3, x4)
-	x_max = max(x1, x2, x3, x4)
-	y_min = min(y1, y2, y3, y4)
-	y_max = max(y1, y2, y3, y4)
+	x_min = min(vertices[::2])
+	x_max = max(vertices[::2])
+	y_min = min(vertices[1::2])
+	y_max = max(vertices[1::2])
 	return x_min, x_max, y_min, y_max
 
 
@@ -140,7 +138,7 @@ def find_min_rect_angle(vertices):
 	angle_list = list(range(-90, 90, angle_interval))
 	area_list = []
 	for theta in angle_list: 
-		rotated = rotate_vertices(vertices, theta / 180 * math.pi)
+		rotated = rotate_vertices(vertices, theta / 180 * np.pi)
 		x1, y1, x2, y2, x3, y3, x4, y4 = rotated
 		temp_area = (max(x1, x2, x3, x4) - min(x1, x2, x3, x4)) * \
                     (max(y1, y2, y3, y4) - min(y1, y2, y3, y4))
@@ -152,15 +150,15 @@ def find_min_rect_angle(vertices):
 	rank_num = 10
 	# find the best angle with correct orientation
 	for index in sorted_area_index[:rank_num]:
-		rotated = rotate_vertices(vertices, angle_list[index] / 180 * math.pi)
+		rotated = rotate_vertices(vertices, angle_list[index] / 180 * np.pi)
 		temp_error = cal_error(rotated)
 		if temp_error < min_error:
 			min_error = temp_error
 			best_index = index
-	return angle_list[best_index] / 180 * math.pi
+	return angle_list[best_index] / 180 * np.pi
 
 
-def is_cross_text(start_loc, length, vertices):
+def is_cross_text(start_loc, length, vertices,labels):
 	'''check if the crop image crosses text regions
 	Input:
 		start_loc: left-top position
@@ -175,39 +173,29 @@ def is_cross_text(start_loc, length, vertices):
 	a = np.array([start_w, start_h, start_w + length, start_h, \
           start_w + length, start_h + length, start_w, start_h + length]).reshape((4,2))
 	p1 = Polygon(a).convex_hull
-	for vertice in vertices:
+	for i,vertice in enumerate(vertices):
+		if labels[i] == 0:
+			continue
 		p2 = Polygon(vertice.reshape((4,2))).convex_hull
 		inter = p1.intersection(p2).area
-		if 0.01 <= inter / p2.area <= 0.99: 
+		if 0.01 <= inter / p2.area <= 0.99  : 
 			return True
 	return False
 		
 
 def crop_img(img, vertices, labels, length):
-	'''crop img patches to obtain batch and augment
-	Input:
-		img         : PIL Image
-		vertices    : vertices of text regions <numpy.ndarray, (n,8)>
-		labels      : 1->valid, 0->ignore, <numpy.ndarray, (n,)>
-		length      : length of cropped image region
-	Output:
-		region      : cropped image region
-		new_vertices: new vertices in cropped region
-	'''
 	h, w = img.height, img.width
-	# confirm the shortest side of image >= length
-	if h >= w and w < length:
-		img = img.resize((length, int(h * length / w)), Image.BICUBIC)
-	elif h < w and h < length:
-		img = img.resize((int(w * length / h), length), Image.BICUBIC)
-	ratio_w = img.width / w
-	ratio_h = img.height / h
-	assert(ratio_w >= 1 and ratio_h >= 1)
+	if min(h,w)<length:
+		if min(h,w) == h:
+			img.resize((int(w*length/h),length),Image.BILINEAR)
+		else:
+			img.resize((length,int(h*length/w)),Image.BILINEAR)
+	ratio_h,ratio_w = img.height/h,img.width/w
 
 	new_vertices = np.zeros(vertices.shape)
 	if vertices.size > 0:
-		new_vertices[:,[0,2,4,6]] = vertices[:,[0,2,4,6]] * ratio_w
-		new_vertices[:,[1,3,5,7]] = vertices[:,[1,3,5,7]] * ratio_h
+		new_vertices[:,1::2] = vertices[:,1::2] * ratio_h
+		new_vertices[:,::2] = vertices[:,::2] * ratio_w
 
 	# find random position
 	remain_h = img.height - length
@@ -218,15 +206,22 @@ def crop_img(img, vertices, labels, length):
 		cnt += 1
 		start_w = int(np.random.rand() * remain_w)
 		start_h = int(np.random.rand() * remain_h)
-		flag = is_cross_text([start_w, start_h], length, new_vertices[labels==1,:])
-	box = (start_w, start_h, start_w + length, start_h + length)
-	region = img.crop(box)
+		flag = is_cross_text([start_w, start_h], length, new_vertices,labels)
+	region = img.crop((start_w, start_h, start_w + length, start_h + length))
 	if new_vertices.size == 0:
 		return region, new_vertices	
 	
-	new_vertices[:,[0,2,4,6]] -= start_w
-	new_vertices[:,[1,3,5,7]] -= start_h
-	return region, new_vertices
+	new_vertices[:,::2] -= start_w
+	new_vertices[:,1::2] -= start_h
+	v = []
+	lbl = []
+	for i,vert in enumerate(new_vertices):
+		if max(vert[::2])<length and max(vert[1::2])<length:
+			v.append(vert)
+			lbl.append(labels[i])
+	v = np.array(v)	
+	v[v<0] = 0
+	return region, v,lbl
 
 
 def rotate_all_pixels(rotate_mat, anchor_x, anchor_y, length):
@@ -264,14 +259,12 @@ def adjust_height(img, vertices, ratio=0.2):
 		new_vertices: adjusted vertices
 	'''
 	ratio_h = 1 + ratio * (np.random.rand() * 2 - 1)
-	old_h = img.height
-	new_h = int(np.around(old_h * ratio_h))
-	img = img.resize((img.width, new_h), Image.BICUBIC)
+	img = img.resize((img.width,int(img.height*ratio_h)), Image.BILINEAR)
 	
 	new_vertices = vertices.copy()
 	if vertices.size > 0:
-		new_vertices[:,[1,3,5,7]] = vertices[:,[1,3,5,7]] * (new_h / old_h)
-	return img, new_vertices
+		new_vertices[:,[1,3,5,7]] = vertices[:,[1,3,5,7]] * (ratio_h)
+	return img, new_vertices.astype(np.int32)
 
 
 def rotate_img(img, vertices, angle_range=10):
@@ -284,13 +277,13 @@ def rotate_img(img, vertices, angle_range=10):
 		img         : rotated PIL Image
 		new_vertices: rotated vertices
 	'''
-	center_x = (img.width - 1) / 2
-	center_y = (img.height - 1) / 2
+	center_x = (img.width - 1) // 2
+	center_y = (img.height - 1) // 2
 	angle = angle_range * (np.random.rand() * 2 - 1)
-	img = img.rotate(angle, Image.BICUBIC)
+	img = img.rotate(angle, Image.BILINEAR)
 	new_vertices = np.zeros(vertices.shape)
 	for i, vertice in enumerate(vertices):
-		new_vertices[i,:] = rotate_vertices(vertice, -angle / 180 * math.pi, np.array([[center_x],[center_y]]))
+		new_vertices[i,:] = rotate_vertices(vertice, -angle / 180 * np.pi, np.array([[center_x],[center_y]]))
 	return img, new_vertices
 
 
@@ -350,7 +343,7 @@ def get_score_geo(img, vertices, labels, scale, length):
 	return torch.Tensor(score_map).permute(2,0,1), torch.Tensor(geo_map).permute(2,0,1), torch.Tensor(ignored_map).permute(2,0,1)
 
 
-def extract_vertices(lines):
+def extract_vertices(pth):
 	'''extract vertices info from txt lines
 	Input:
 		lines   : list of string info
@@ -358,13 +351,14 @@ def extract_vertices(lines):
 		vertices: vertices of text regions <numpy.ndarray, (n,8)>
 		labels  : 1->valid, 0->ignore, <numpy.ndarray, (n,)>
 	'''
-	labels = []
-	vertices = []
-	for line in lines:
-		vertices.append(list(map(int,line.rstrip('\n').lstrip('\ufeff').split(',')[:8])))
-		label = 0 if '###' in line else 1
-		labels.append(label)
-	return np.array(vertices), np.array(labels)
+	f = open(pth,"r")
+	data = f.read()
+	data = [i.lstrip("ï»¿") for i in data.split('\n') if i !='']
+	data = [i.split(',') for i in data]
+	data = np.array(data)
+	vertices = np.array(np.array([list(map(int,i[:8])) for i in data]))
+	labels = np.array([0 if '###' in i  else 1 for i in data ])
+	return vertices,labels
 
 	
 class custom_dataset(data.Dataset):
@@ -379,18 +373,33 @@ class custom_dataset(data.Dataset):
 		return len(self.img_files)
 
 	def __getitem__(self, index):
-		with open(self.gt_files[index], 'r') as f:
-			lines = f.readlines()
-		vertices, labels = extract_vertices(lines)
+		
+		vertices, labels = extract_vertices(self.gt_files[index])
 		
 		img = Image.open(self.img_files[index])
 		img, vertices = adjust_height(img, vertices) 
 		img, vertices = rotate_img(img, vertices)
-		img, vertices = crop_img(img, vertices, labels, self.length) 
+		img, vertices,labels = crop_img(img, vertices, labels, self.length) 
 		transform = transforms.Compose([transforms.ColorJitter(0.5, 0.5, 0.5, 0.25), \
                                         transforms.ToTensor(), \
                                         transforms.Normalize(mean=(0.5,0.5,0.5),std=(0.5,0.5,0.5))])
 		
 		score_map, geo_map, ignored_map = get_score_geo(img, vertices, labels, self.scale, self.length)
 		return transform(img), score_map, geo_map, ignored_map
-
+if __name__=="__main__":
+	gt_img = "D:/IC15/train_gt/gt_img_645.txt"
+	img_pth = "D:/IC15/train_img/img_645.jpg"
+	vertices, labels = extract_vertices(gt_img)
+	img = cv2.imread(img_pth)
+	vertices = vertices.reshape(-1,4,2)
+	cv2.drawContours(img,vertices,-1,(0,255,0),3)
+	cv2.imshow("Image",img)
+	cv2.waitKey(0)
+	print(vertices)
+	img = Image.open(img_pth)
+	print(img.size)
+	vertices = vertices.reshape(vertices.shape[0],8)
+	img,vertices,labels = crop_img(img,vertices,labels,512)
+	print(img.size)
+	img.show()
+	print(vertices.reshape(-1,4,2))

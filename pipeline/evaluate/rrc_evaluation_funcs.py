@@ -18,10 +18,9 @@ def load_zip_file_keys(file,fileNameRegExp=''):
     Returns an array with the entries of the ZIP file that match with the regular expression.
     The key's are the names or the file or the capturing group definied in the fileNameRegExp
     """
-    try:
-        archive=zipfile.ZipFile(file, mode='r', allowZip64=True)
-    except :
-        raise Exception('Error loading the ZIP archive.')
+    
+    archive=zipfile.ZipFile(file, mode='r', allowZip64=True)
+    
 
     pairs = []
     
@@ -48,10 +47,8 @@ def load_zip_file(file,fileNameRegExp='',allEntries=False):
     The key's are the names or the file or the capturing group definied in the fileNameRegExp
     allEntries validates that all entries in the ZIP file pass the fileNameRegExp
     """
-    try:
-        archive=zipfile.ZipFile(file, mode='r', allowZip64=True)
-    except :
-        raise Exception('Error loading the ZIP archive')    
+    
+    archive=zipfile.ZipFile(file, mode='r', allowZip64=True)  
 
     pairs = []
     for name in archive.namelist():
@@ -286,11 +283,15 @@ def main_evaluation(p,default_evaluation_params_fn,validate_data_fn,evaluate_met
     evaluate_method_fn: points to a function that evaluated the submission and return a Dictionary with the results
     """
     
-    if (p == None):
-        p = dict([s[1:].split('=') for s in sys.argv[1:]])
-        if(len(sys.argv)<3):
-            print_help()
-
+    # if (p == None):
+    #     print([s[1:].split('=') for s in sys.argv[1:]])
+    #     p = dict([s[1:].split('=') for s in sys.argv[1:]])
+    #     if(len(sys.argv)<3):
+    #         print_help()
+    p={}
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    p['g']= base_path + '\\gt.zip'
+    p['s']= base_path + '\\submit.zip'    
     evalParams = default_evaluation_params_fn()
     if 'p' in p.keys():
         evalParams.update( p['p'] if isinstance(p['p'], dict) else json.loads(p['p'][1:-1]) )

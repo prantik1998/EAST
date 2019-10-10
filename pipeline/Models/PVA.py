@@ -120,4 +120,13 @@ class output(nn.Module):
 		geo   = torch.cat((loc, angle), 1) 
 		return score, geo
 
+if __name__=="__main__":
+	x = torch.randn(1,3,512,512)
+	stem = PVA()
+	mid = merge()
+	out = output()
+	x = mid(stem(x))
+	score,geo = out(x)
+	print(score.size())
+	print(geo.size())
 	

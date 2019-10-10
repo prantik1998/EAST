@@ -3,10 +3,12 @@ from torchvision import transforms
 from PIL import Image, ImageDraw
 from .model import EAST
 import os
-from .dataset import get_rotate_mat
 import numpy as np
-import lanms
+# import lanms
+from  nms import nms as fast
 
+def get_rotate_mat(theta):
+	return np.array([[np.cos(theta),-np.sin(theta)],[np.sin(theta),np.cos(theta)]])
 
 def resize_img(img):
 	'''resize image to be divisible by 32
@@ -111,8 +113,11 @@ def get_boxes(score, geo, score_thresh=0.9, nms_thresh=0.2):
 	boxes = np.zeros((polys_restored.shape[0], 9), dtype=np.float32)
 	boxes[:, :8] = polys_restored
 	boxes[:, 8] = score[xy_text[index, 0], xy_text[index, 1]]
-	boxes = lanms.merge_quadrangle_n9(boxes.astype('float32'), nms_thresh)
-	return boxes
+	rect=[[boxes[i,0],boxes[i,1],abs(boxes[i,2]-boxes[i,0]),abs(boxes[i,3]-boxes[i,1])] for i in range(boxes.shape[0])]
+	score=boxes[:,8]
+	ind = fast.boxes(rect,score)
+	to_return = [boxes[i] for i in ind]
+	return np.array(to_return)
 
 
 def adjust_ratio(boxes, ratio_w, ratio_h):

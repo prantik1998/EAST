@@ -2,27 +2,33 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class VGG(nn.Module):
+import math
+import sys
+
+class Block(nn.Module):
+	def __init__(self,inc):
+		super(Block,self).__init__()
+		self.layer1=nn.Sequential(nn.Conv2d(inc,inc,3,padding=1),nn.BatchNorm2d(inc),nn.LeakyReLU(0.1))
+	def forward(self,x):
+		return x + self.layer1(x)
+
+
+class Net(nn.Module):
 	def __init__(self):
-		super(VGG,self).__init__()
-		self.layer1=nn.Sequential(nn.Conv2d(3,64,3,padding=1),nn.BatchNorm2d(64),nn.ReLU())
-		self.layer2=nn.Sequential(nn.Conv2d(64,64,3,padding=1),nn.BatchNorm2d(64),nn.ReLU())
-		self.pool1=nn.MaxPool2d(kernel_size=2, stride=2)
-		self.layer3=nn.Sequential(nn.Conv2d(64,128,3,padding=1),nn.BatchNorm2d(128),nn.ReLU())
-		self.layer4=nn.Sequential(nn.Conv2d(128,128,3,padding=1),nn.BatchNorm2d(128),nn.ReLU())
-		self.pool2=nn.MaxPool2d(kernel_size=2, stride=2)
-		self.layer5=nn.Sequential(nn.Conv2d(128,256,3,padding=1),nn.BatchNorm2d(256),nn.ReLU())
-		self.layer6=nn.Sequential(nn.Conv2d(256,256,3,padding=1),nn.BatchNorm2d(256),nn.ReLU())
-		self.layer7=nn.Sequential(nn.Conv2d(256,256,3,padding=1),nn.BatchNorm2d(256),nn.ReLU())
-		self.pool3=nn.MaxPool2d(kernel_size=2, stride=2)
-		self.layer8=nn.Sequential(nn.Conv2d(256,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())
-		self.layer9=nn.Sequential(nn.Conv2d(512,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())
-		self.layer10=nn.Sequential(nn.Conv2d(512,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())		
-		self.pool4=nn.MaxPool2d(kernel_size=2, stride=2)
-		self.layer11=nn.Sequential(nn.Conv2d(512,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())
-		self.layer12=nn.Sequential(nn.Conv2d(512,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())
-		self.layer13=nn.Sequential(nn.Conv2d(512,512,3,padding=1),nn.BatchNorm2d(512),nn.ReLU())		
-		self.pool5=nn.MaxPool2d(kernel_size=2, stride=2)
+		super(Net,self).__init__()
+		self.conv1=nn.Sequential(nn.Conv2d(3,32,3,padding=1),nn.BatchNorm2d(32),nn.LeakyReLU(0.1))
+		self.conv2=nn.Sequential(nn.Conv2d(32,64,3,stride=2,padding=1),nn.BatchNorm2d(64),nn.LeakyReLU(0.1))
+		self.res1=Block(64)
+		self.conv3=nn.Sequential(nn.Conv2d(64,128,3,stride=2,padding=1),nn.BatchNorm2d(128),nn.LeakyReLU(0.1))
+		self.res2=nn.Sequential(Block(128))
+		self.conv4=nn.Sequential(nn.Conv2d(128,256,3,stride=2,padding=1),nn.BatchNorm2d(256),nn.LeakyReLU(0.1))
+		self.res3=nn.Sequential(Block(256))
+		self.conv5=nn.Sequential(nn.Conv2d(256,512,3,stride=2,padding=1),nn.BatchNorm2d(512),nn.LeakyReLU(0.1))
+		self.res4=nn.Sequential(Block(512))
+		self.conv6=nn.Sequential(nn.Conv2d(512,512,3,stride=2,padding=1),nn.BatchNorm2d(512),nn.LeakyReLU(0.1))
+		self.res5=nn.Sequential(Block(512))
+				
+
 		for m in self.modules():
 			if isinstance(m,nn.Conv2d):
 				nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -31,18 +37,25 @@ class VGG(nn.Module):
 			elif isinstance(m,nn.BatchNorm2d):
 				nn.init.constant_(m.weight, 1)
 				nn.init.constant_(m.bias, 1)
+
 	def forward(self,x):
 		out=[]
-		x=self.pool1(self.layer2(self.layer1(x)))
-		out.append(x)		
-		x=self.pool2(self.layer4(self.layer3(x)))
+		x=self.res1((self.conv2(self.conv1(x))))
 		out.append(x)
-		x=self.pool3(self.layer7(self.layer6(self.layer5(x))))
+
+		x=self.res2(self.conv3(x))
 		out.append(x)
-		x=self.pool4(self.layer10(self.layer9(self.layer8(x))))
+
+		x=self.res3(self.conv4(x))
 		out.append(x)
-		x=self.pool5(self.layer13(self.layer12(self.layer11(x))))
+
+		x=self.res4(self.conv5(x))
 		out.append(x)
+
+		x=self.res5(self.conv6(x))
+		out.append(x)
+
+
 		return out[1:]
 
 
@@ -99,9 +112,9 @@ class merge(nn.Module):
 		y = F.interpolate(y, scale_factor=2, mode='bilinear', align_corners=True)
 		y = torch.cat((y, x[0]), 1)
 		y = self.relu5(self.bn5(self.conv5(y)))		
-		y = self.relu6(self.bn6(self.conv6(y)))
-		
+		y = self.relu6(self.bn6(self.conv6(y)))		
 		y = self.relu7(self.bn7(self.conv7(y)))
+
 		return y
 
 class output(nn.Module):
